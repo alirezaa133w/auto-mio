@@ -13,13 +13,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
     
     def log_message(self, format, *args):
-        pass  # خاموش کردن لاگ‌های اضافی
+        pass
 
 def run_web_server():
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), Handler)
     server.serve_forever()
 
-# اجرا در یک ترد جداگانه
 threading.Thread(target=run_web_server, daemon=True).start()
 print("✅ وب سرور برای Render روشن شد!")
