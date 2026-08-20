@@ -1,24 +1,23 @@
 """
-پنل ثبت‌نام - فقط Flask
+ربات اصلی - فقط Telethon
 """
 
-import os
-import json
-import time
 import asyncio
-from flask import Flask, render_template, request, jsonify, session
+import json
+import random
+import time
+import threading
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError
-
-app = Flask(__name__)
-app.secret_key = 'mew_secret_key_2026'
 
 # ========== تنظیمات ==========
 API_ID = 17187664
 API_HASH = 'd6eae2c921342bb71816a980dc11b9f5'
 USERS_FILE = 'users.json'
 SESSIONS_DIR = 'sessions/'
-TEMP_SESSIONS = {}
+ACTIVE_SESSIONS = {}
+
+KEYWORDS = ["میو", "مع", "میاو", "معو"]
+DELAYS = list(range(260, 361, 5))
 
 # ========== مدیریت فایل‌ها ==========
 def load_users():
@@ -28,93 +27,104 @@ def load_users():
     except:
         return {}
 
-def save_users(users):
+def update_user_status(user_id, status, data=None):
+    users = load_users()
+    user_id = str(user_id)
+    if user_id not in users:
+        users[user_id] = {}
+    users[user_id]['status'] = status
+    if data:
+        users[user_id].update(data)
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=2)
 
-# ========== مسیرها ==========
-@app.route('/')
-def index():
-    return render_template('register.html')
+# ========== کلاس ربات کاربر ==========
+class UserBot:
+    def __init__(self, user_id, data):
+        self.user_id = user_id
+        self.phone = data.get('phone')
+        self.code = data.get('code')
+        self.group_link = data.get('group_link', 'https://t.me/+NJNJp5hUf3IzNTRk')
+        self.client = None
+        self.running = False
+        
+    async def start(self):
+        session_file = f"{SESSIONS_DIR}user_{self.user_id}"
+        self.client = TelegramClient(session_file, API_ID, API_HASH)
+        
+        try:
+            await self.client.start(phone=self.phone, code=self.code)
+            me = await self.client.get_me()
+            
+            print(f"✅ کاربر {me.first_name} (@{me.username}) متصل شد!")
+            update_user_status(self.user_id, 'active', {'username': me.username})
+            
+            ACTIVE_SESSIONS[self.user_id] = {'client': self.client, 'bot': self}
+            self.running = True
+            
+            group = await self.client.get_entity(self.group_link)
+            self.group_id = group.id
+            
+            await self.client.send_message(self.group_id, "🔥 ماینر اتومات روشن شد!")
+            await self.main_loop()
+            
+        except Exception as e:
+            print(f"❌ خطا: {e}")
+            update_user_status(self.user_id, 'error', {'error': str(e)})
+    
+    async def main_loop(self):
+        await asyncio.sleep(5)
+        counter = 0
+        while self.running:
+            try:
+                word = random.choice(KEYWORDS)
+                await self.client.send_message(self.group_id, word)
+                counter += 1
+                if counter % 5 == 0:
+                    await self.client.send_message(self.group_id, "فنر")
+                
+                delay = random.choice(DELAYS) + random.randint(-30, 60)
+                delay = max(240, delay)
+                await asyncio.sleep(delay)
+                
+            except Exception as e:
+                print(f"❌ خطا: {e}")
+                await asyncio.sleep(60)
 
-@app.route('/api/send_code', methods=['POST'])
-def send_code():
-    phone = request.form.get('phone', '').strip()
-    
-    if not phone.startswith('+') or not phone[1:].isdigit():
-        return jsonify({'success': False, 'message': '❌ شماره باید با + شروع شود!'})
-    
-    try:
-        temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{int(time.time())}", API_ID, API_HASH)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(temp_client.connect())
-        loop.run_until_complete(temp_client.send_code_request(phone))
-        
-        session_id = str(int(time.time()))
-        TEMP_SESSIONS[session_id] = {
-            'client': temp_client,
-            'phone': phone,
-            'timestamp': time.time()
-        }
-        
-        session['temp_id'] = session_id
-        session['phone'] = phone
-        
-        return jsonify({'success': True, 'message': f'✅ کد تایید به {phone} ارسال شد!'})
-        
-    except FloodWaitError as e:
-        return jsonify({'success': False, 'message': f'⏳ صبر کنید {e.seconds} ثانیه!'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
+# ========== اجراکننده ==========
+def start_user_bot(user_id, data):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    bot = UserBot(user_id, data)
+    loop.run_until_complete(bot.start())
 
-@app.route('/api/verify_code', methods=['POST'])
-def verify_code():
-    code = request.form.get('code', '').strip()
-    temp_id = session.get('temp_id')
-    phone = session.get('phone')
+def watch_for_new_users():
+    while True:
+        try:
+            users = load_users()
+            for user_id, data in users.items():
+                if data.get('status') == 'pending' and user_id not in ACTIVE_SESSIONS:
+                    print(f"🆕 کاربر جدید: {data.get('phone')}")
+                    threading.Thread(target=start_user_bot, args=(user_id, data)).start()
+                    time.sleep(3)
+            time.sleep(10)
+        except Exception as e:
+            print(f"⚠️ واتچر: {e}")
+            time.sleep(30)
+
+def run_bot():
+    """تابع اجرای ربات - توسط app.py صدا زده میشه"""
+    print("🚀 ربات اصلی شروع شد...")
+    threading.Thread(target=watch_for_new_users, daemon=True).start()
     
-    if not temp_id or temp_id not in TEMP_SESSIONS:
-        return jsonify({'success': False, 'message': '❌ نشست منقضی شده! دوباره تلاش کنید.'})
+    # اجرای کاربران فعال قبلی
+    users = load_users()
+    for user_id, data in users.items():
+        if data.get('status') == 'active':
+            threading.Thread(target=start_user_bot, args=(user_id, data)).start()
+            time.sleep(2)
     
-    if not code.isdigit() or len(code) != 5:
-        return jsonify({'success': False, 'message': '❌ کد باید ۵ رقم باشد!'})
-    
-    try:
-        temp_data = TEMP_SESSIONS[temp_id]
-        temp_client = temp_data['client']
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(temp_client.sign_in(code=code))
-        me = loop.run_until_complete(temp_client.get_me())
-        
-        users = load_users()
-        user_id = str(int(time.time()))
-        
-        users[user_id] = {
-            'phone': phone,
-            'code': code,
-            'status': 'pending',
-            'registered_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'username': me.username,
-            'first_name': me.first_name
-        }
-        save_users(users)
-        
-        loop.run_until_complete(temp_client.disconnect())
-        del TEMP_SESSIONS[temp_id]
-        session.clear()
-        
-        return jsonify({
-            'success': True,
-            'message': f'✅ ثبت‌نام موفق! خوش آمدی @{me.username}',
-            'user': {
-                'name': me.first_name,
-                'username': me.username,
-                'phone': phone
-            }
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
+    print("✅ ربات آماده است!")
+
+if __name__ == "__main__":
+    run_bot()
