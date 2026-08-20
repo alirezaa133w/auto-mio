@@ -1,5 +1,5 @@
 """
-پنل ثبت‌نام - فقط Flask
+پنل ثبت‌نام - نسخه نهایی با asyncio درست
 """
 
 import os
@@ -50,6 +50,10 @@ async def verify_code_async(temp_client, code):
     me = await temp_client.get_me()
     return me
 
+async def disconnect_async(temp_client):
+    """قطع اتصال کلاینت"""
+    await temp_client.disconnect()
+
 # ========== مسیرها ==========
 @app.route('/')
 def index():
@@ -67,10 +71,8 @@ def send_code():
         return jsonify({'success': False, 'message': '❌ شماره باید با + شروع شود!'})
     
     try:
-        # اجرای async در یک حلقه جدید
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        temp_client = loop.run_until_complete(send_code_async(phone))
+        # استفاده از asyncio.run() برای مدیریت حلقه
+        temp_client = asyncio.run(send_code_async(phone))
         
         session_id = str(int(time.time()))
         TEMP_SESSIONS[session_id] = {
@@ -105,10 +107,8 @@ def verify_code():
         temp_data = TEMP_SESSIONS[temp_id]
         temp_client = temp_data['client']
         
-        # اجرای async در یک حلقه جدید
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        me = loop.run_until_complete(verify_code_async(temp_client, code))
+        # استفاده از asyncio.run() برای مدیریت حلقه
+        me = asyncio.run(verify_code_async(temp_client, code))
         
         users = load_users()
         user_id = str(int(time.time()))
@@ -125,7 +125,7 @@ def verify_code():
         save_users(users)
         
         # بستن کلاینت
-        loop.run_until_complete(temp_client.disconnect())
+        asyncio.run(disconnect_async(temp_client))
         del TEMP_SESSIONS[temp_id]
         session.clear()
         
