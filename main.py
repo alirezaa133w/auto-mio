@@ -1,12 +1,11 @@
-"""
-ربات اصلی میو - روی Render اجرا میشه
-"""
+import render_web  # ✅ این خط رو اضافه کن
 
 import asyncio
 import json
 import os
 import random
 import re
+import time
 from datetime import datetime
 from telethon import TelegramClient, events
 
@@ -28,6 +27,7 @@ def ensure_files():
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f:
             json.dump({}, f, indent=2)
+        print("✅ users.json ساخته شد!")
 
 def load_users():
     try:
