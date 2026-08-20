@@ -1,1 +1,261 @@
-templates/register.html
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ثبت‌نام ربات میو</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: Tahoma, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: #0f3460;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        h1 { color: #e94560; text-align: center; font-size: 28px; margin-bottom: 10px; }
+        .subtitle { color: #aaa; text-align: center; margin-bottom: 30px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; color: #ddd; margin-bottom: 8px; font-size: 14px; }
+        input[type="text"] {
+            width: 100%; padding: 12px 15px;
+            border: 2px solid #1a1a2e; border-radius: 10px;
+            background: #1a1a2e; color: #fff; font-size: 16px;
+            transition: all 0.3s; box-sizing: border-box;
+        }
+        input:focus { border-color: #e94560; outline: none; box-shadow: 0 0 20px rgba(233,69,96,0.2); }
+        .btn {
+            width: 100%; padding: 14px; border: none; border-radius: 10px;
+            color: #fff; font-size: 18px; font-weight: bold; cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-primary { background: #e94560; }
+        .btn-primary:hover { background: #c73652; }
+        .btn-success { background: #2ecc71; }
+        .btn-success:hover { background: #27ae60; }
+        .btn-secondary { background: #555; }
+        .btn-secondary:hover { background: #666; }
+        .message {
+            padding: 12px 15px; border-radius: 10px; margin-bottom: 20px;
+            text-align: center; font-weight: bold; display: none;
+        }
+        .message.show { display: block; }
+        .message.success { background: #2ecc71; color: #fff; }
+        .message.error { background: #e74c3c; color: #fff; }
+        .message.info { background: #3498db; color: #fff; }
+        .rules {
+            background: #1a1a2e; padding: 15px; border-radius: 10px;
+            margin-bottom: 20px; color: #aaa; font-size: 13px; line-height: 1.8;
+        }
+        .rules strong { color: #e94560; }
+        .step-indicator {
+            display: flex; justify-content: center; gap: 10px; margin-bottom: 30px;
+        }
+        .step {
+            width: 40px; height: 40px; border-radius: 50%; background: #1a1a2e;
+            color: #666; display: flex; align-items: center; justify-content: center;
+            font-weight: bold; transition: all 0.3s;
+        }
+        .step.active { background: #e94560; color: #fff; box-shadow: 0 0 20px rgba(233,69,96,0.4); }
+        .step.done { background: #2ecc71; color: #fff; }
+        .hidden { display: none; }
+        .footer { text-align: center; color: #666; margin-top: 20px; font-size: 12px; }
+        .footer a { color: #e94560; text-decoration: none; }
+        .user-info { background: #1a1a2e; padding: 15px; border-radius: 10px; margin: 15px 0; color: #ddd; }
+        .user-info span { color: #e94560; font-weight: bold; }
+        .status-bar {
+            background: #1a1a2e; padding: 10px; border-radius: 10px;
+            margin-bottom: 20px; color: #888; font-size: 12px; text-align: center;
+        }
+        .status-bar .online { color: #2ecc71; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐱 ثبت‌نام ربات میو</h1>
+        <p class="subtitle">برای استفاده از ربات، اطلاعات خود را وارد کنید</p>
+        
+        <div class="status-bar">
+            🟢 ربات <span class="online">فعال</span> | کاربران: <span id="userCount">0</span>
+        </div>
+        
+        <div class="step-indicator">
+            <div class="step active" id="step1">1</div>
+            <div class="step" id="step2">2</div>
+            <div class="step" id="step3">3</div>
+        </div>
+        
+        <div id="messageBox" class="message"></div>
+        
+        <div class="rules">
+            <strong>📋 قوانین:</strong><br>
+            • اطلاعات فقط برای اجرای ربات استفاده میشود<br>
+            • شما مسئولیت کامل اطلاعات خود را دارید
+        </div>
+        
+        <div id="step1Content">
+            <div class="form-group">
+                <label>📱 شماره تلفن (با کد کشور)</label>
+                <input type="text" id="phone" placeholder="مثال: +989123456789">
+                <small style="color: #888; display: block; margin-top: 5px; font-size: 12px;">
+                    کد تایید به این شماره ارسال میشود
+                </small>
+            </div>
+            <button class="btn btn-primary" id="sendCodeBtn">📲 ارسال کد تایید</button>
+        </div>
+        
+        <div id="step2Content" style="display: none;">
+            <div class="form-group">
+                <label>🔑 کد تایید</label>
+                <input type="text" id="code" placeholder="کد ۵ رقمی" maxlength="5">
+                <small style="color: #888; display: block; margin-top: 5px; font-size: 12px;">
+                    کد به شماره شما ارسال شد
+                </small>
+            </div>
+            <button class="btn btn-success" id="verifyBtn">✅ تایید و ثبت‌نام</button>
+            <button class="btn btn-secondary" id="backBtn" style="margin-top:10px;">↩️ بازگشت</button>
+        </div>
+        
+        <div id="step3Content" style="display: none;">
+            <div style="text-align: center; padding: 20px; color: #2ecc71;">
+                <h2>🎉 ثبت‌نام تکمیل شد!</h2>
+                <div id="userInfo" class="user-info"></div>
+                <p style="color: #aaa; margin-top: 10px;">
+                    ربات به زودی فعال میشه
+                </p>
+                <button class="btn btn-primary" onclick="location.reload()" style="margin-top:20px;">🔄 ثبت‌نام جدید</button>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>نسخه ۱.۰ | <a href="#">قوانین</a></p>
+        </div>
+    </div>
+    
+    <script>
+        let currentStep = 1;
+        
+        function showMessage(text, type) {
+            const box = document.getElementById('messageBox');
+            box.textContent = text;
+            box.className = 'message show ' + type;
+        }
+        
+        function hideMessage() {
+            document.getElementById('messageBox').className = 'message';
+        }
+        
+        function updateSteps(step) {
+            for (let i = 1; i <= 3; i++) {
+                const el = document.getElementById('step' + i);
+                el.className = 'step';
+                if (i < step) el.classList.add('done');
+                if (i === step) el.classList.add('active');
+            }
+        }
+        
+        function showStep(step) {
+            currentStep = step;
+            document.getElementById('step1Content').style.display = step === 1 ? 'block' : 'none';
+            document.getElementById('step2Content').style.display = step === 2 ? 'block' : 'none';
+            document.getElementById('step3Content').style.display = step === 3 ? 'block' : 'none';
+            updateSteps(step);
+            hideMessage();
+        }
+        
+        async function updateUserCount() {
+            try {
+                const response = await fetch('/api/users/count');
+                const data = await response.json();
+                document.getElementById('userCount').textContent = data.count || 0;
+            } catch(e) {}
+        }
+        updateUserCount();
+        setInterval(updateUserCount, 30000);
+        
+        document.getElementById('sendCodeBtn').addEventListener('click', async function() {
+            const phone = document.getElementById('phone').value.trim();
+            if (!phone) { showMessage('❌ شماره خود را وارد کنید!', 'error'); return; }
+            
+            this.disabled = true;
+            this.textContent = '⏳ در حال ارسال...';
+            showMessage('⏳ در حال ارسال کد...', 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('phone', phone);
+                const response = await fetch('/api/send_code', { method: 'POST', body: formData });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    showStep(2);
+                } else {
+                    showMessage(result.message, 'error');
+                    this.disabled = false;
+                    this.textContent = '📲 ارسال کد تایید';
+                }
+            } catch (error) {
+                showMessage('❌ خطا در ارتباط با سرور!', 'error');
+                this.disabled = false;
+                this.textContent = '📲 ارسال کد تایید';
+            }
+        });
+        
+        document.getElementById('verifyBtn').addEventListener('click', async function() {
+            const code = document.getElementById('code').value.trim();
+            if (!code || code.length !== 5) { showMessage('❌ کد ۵ رقم باشد!', 'error'); return; }
+            
+            this.disabled = true;
+            this.textContent = '⏳ در حال تایید...';
+            showMessage('⏳ در حال تایید کد...', 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('code', code);
+                const response = await fetch('/api/verify_code', { method: 'POST', body: formData });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    document.getElementById('userInfo').innerHTML = `
+                        👤 نام: <span>${result.user.name}</span><br>
+                        🆔 یوزرنیم: <span>@${result.user.username}</span><br>
+                        📱 شماره: <span>${result.user.phone}</span>
+                    `;
+                    showStep(3);
+                    updateUserCount();
+                } else {
+                    showMessage(result.message, 'error');
+                    this.disabled = false;
+                    this.textContent = '✅ تایید و ثبت‌نام';
+                }
+            } catch (error) {
+                showMessage('❌ خطا در ارتباط با سرور!', 'error');
+                this.disabled = false;
+                this.textContent = '✅ تایید و ثبت‌نام';
+            }
+        });
+        
+        document.getElementById('backBtn').addEventListener('click', function() { showStep(1); });
+        document.getElementById('phone').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('sendCodeBtn').click();
+        });
+        document.getElementById('code').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('verifyBtn').click();
+        });
+    </script>
+</body>
+</html>
