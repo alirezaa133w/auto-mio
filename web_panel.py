@@ -1,15 +1,13 @@
 """
-پنل ثبت‌نام - نسخه با ThreadPoolExecutor
+پنل ثبت‌نام - نسخه Sync (بدون asyncio)
 """
 
 import os
 import json
 import time
-import asyncio
 from flask import Flask, render_template, request, jsonify, session
-from telethon import TelegramClient
+from telethon.sync import TelegramClient
 from telethon.errors import FloodWaitError
-import concurrent.futures
 
 app = Flask(__name__)
 app.secret_key = 'mew_secret_key_2026'
@@ -20,9 +18,6 @@ API_HASH = 'd6eae2c921342bb71816a980dc11b9f5'
 USERS_FILE = 'users.json'
 SESSIONS_DIR = 'sessions/'
 TEMP_SESSIONS = {}
-
-# ========== ایجاد ThreadPool ==========
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 # ========== مدیریت فایل‌ها ==========
 def load_users():
@@ -40,33 +35,18 @@ def get_user_count():
     users = load_users()
     return len(users)
 
-# ========== توابع async ==========
-async def send_code_async(phone):
-    """ارسال کد به صورت async"""
+# ========== توابع Sync ==========
+def send_code_sync(phone):
+    """ارسال کد - نسخه sync"""
     temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{int(time.time())}", API_ID, API_HASH)
-    await temp_client.connect()
-    await temp_client.send_code_request(phone)
+    temp_client.start(phone=phone)
     return temp_client
 
-async def verify_code_async(temp_client, code):
-    """تایید کد به صورت async"""
-    await temp_client.sign_in(code=code)
-    me = await temp_client.get_me()
+def verify_code_sync(temp_client, code):
+    """تایید کد - نسخه sync"""
+    temp_client.sign_in(code=code)
+    me = temp_client.get_me()
     return me
-
-async def disconnect_async(temp_client):
-    """قطع اتصال"""
-    await temp_client.disconnect()
-
-def run_async(func, *args):
-    """اجرای تابع async در ThreadPool"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        result = loop.run_until_complete(func(*args))
-        return result
-    finally:
-        loop.close()
 
 # ========== مسیرها ==========
 @app.route('/')
@@ -85,9 +65,8 @@ def send_code():
         return jsonify({'success': False, 'message': '❌ شماره باید با + شروع شود!'})
     
     try:
-        # اجرا در ThreadPool
-        future = executor.submit(run_async, send_code_async, phone)
-        temp_client = future.result(timeout=30)
+        # استفاده از نسخه sync
+        temp_client = send_code_sync(phone)
         
         session_id = str(int(time.time()))
         TEMP_SESSIONS[session_id] = {
@@ -103,8 +82,6 @@ def send_code():
         
     except FloodWaitError as e:
         return jsonify({'success': False, 'message': f'⏳ صبر کنید {e.seconds} ثانیه!'})
-    except concurrent.futures.TimeoutError:
-        return jsonify({'success': False, 'message': '⏳ زمان ارسال کد به پایان رسید!'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
 
@@ -124,9 +101,8 @@ def verify_code():
         temp_data = TEMP_SESSIONS[temp_id]
         temp_client = temp_data['client']
         
-        # اجرا در ThreadPool
-        future = executor.submit(run_async, verify_code_async, temp_client, code)
-        me = future.result(timeout=30)
+        # تایید کد به صورت sync
+        me = verify_code_sync(temp_client, code)
         
         users = load_users()
         user_id = str(int(time.time()))
@@ -143,7 +119,7 @@ def verify_code():
         save_users(users)
         
         # بستن کلاینت
-        executor.submit(run_async, disconnect_async, temp_client)
+        temp_client.disconnect()
         del TEMP_SESSIONS[temp_id]
         session.clear()
         
@@ -157,8 +133,6 @@ def verify_code():
             }
         })
         
-    except concurrent.futures.TimeoutError:
-        return jsonify({'success': False, 'message': '⏳ زمان تایید کد به پایان رسید!'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'❌ خطا: {str(e)}'})
 
