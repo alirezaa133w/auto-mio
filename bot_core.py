@@ -1,5 +1,5 @@
 """
-ربات اصلی - نسخه Sync کامل
+ربات اصلی - با Session قبلی
 """
 
 import json
@@ -8,7 +8,6 @@ import time
 import threading
 import os
 from telethon.sync import TelegramClient
-from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
 # ========== تنظیمات ==========
 API_ID = 17187664
@@ -44,30 +43,22 @@ class UserBot:
     def __init__(self, user_id, data):
         self.user_id = user_id
         self.phone = data.get('phone')
-        self.code = data.get('code')
         self.group_link = data.get('group_link', 'https://t.me/+NJNJp5hUf3IzNTRk')
         self.client = None
         self.running = False
         
     def start(self):
-        session_file = f"{SESSIONS_DIR}user_{self.user_id}"
-        self.client = TelegramClient(session_file, API_ID, API_HASH)
+        session_file = f"{SESSIONS_DIR}user_{self.user_id}.session"
+        
+        # اگر سشن وجود نداره، از فایل استفاده کن
+        if not os.path.exists(session_file):
+            print(f"❌ سشن برای {self.phone} وجود ندارد!")
+            update_user_status(self.user_id, 'error', {'error': 'سشن وجود ندارد'})
+            return
         
         try:
-            self.client.start(phone=self.phone)
-            
-            # اگر کد قبلاً ذخیره شده، ازش استفاده کن
-            if self.code:
-                try:
-                    self.client.sign_in(code=self.code)
-                except PhoneCodeInvalidError:
-                    print(f"❌ کد نادرست برای {self.phone}")
-                    update_user_status(self.user_id, 'error', {'error': 'کد نادرست'})
-                    return
-                except SessionPasswordNeededError:
-                    print(f"🔐 2FA برای {self.phone} فعال است")
-                    update_user_status(self.user_id, 'error', {'error': '2FA فعال است'})
-                    return
+            self.client = TelegramClient(session_file, API_ID, API_HASH)
+            self.client.start()
             
             me = self.client.get_me()
             
