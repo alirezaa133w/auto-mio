@@ -1,13 +1,12 @@
 """
-ربات اصلی - فقط Telethon
+ربات اصلی - نسخه Sync (بدون asyncio)
 """
 
-import asyncio
 import json
 import random
 import time
 import threading
-from telethon import TelegramClient
+from telethon.sync import TelegramClient
 
 # ========== تنظیمات ==========
 API_ID = 17187664
@@ -38,7 +37,7 @@ def update_user_status(user_id, status, data=None):
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=2)
 
-# ========== کلاس ربات کاربر ==========
+# ========== کلاس ربات کاربر (Sync) ==========
 class UserBot:
     def __init__(self, user_id, data):
         self.user_id = user_id
@@ -48,13 +47,13 @@ class UserBot:
         self.client = None
         self.running = False
         
-    async def start(self):
+    def start(self):
         session_file = f"{SESSIONS_DIR}user_{self.user_id}"
         self.client = TelegramClient(session_file, API_ID, API_HASH)
         
         try:
-            await self.client.start(phone=self.phone, code=self.code)
-            me = await self.client.get_me()
+            self.client.start(phone=self.phone, code=self.code)
+            me = self.client.get_me()
             
             print(f"✅ کاربر {me.first_name} (@{me.username}) متصل شد!")
             update_user_status(self.user_id, 'active', {'username': me.username})
@@ -62,41 +61,39 @@ class UserBot:
             ACTIVE_SESSIONS[self.user_id] = {'client': self.client, 'bot': self}
             self.running = True
             
-            group = await self.client.get_entity(self.group_link)
+            group = self.client.get_entity(self.group_link)
             self.group_id = group.id
             
-            await self.client.send_message(self.group_id, "🔥 ماینر اتومات روشن شد!")
-            await self.main_loop()
+            self.client.send_message(self.group_id, "🔥 ماینر اتومات روشن شد!")
+            self.main_loop()
             
         except Exception as e:
-            print(f"❌ خطا: {e}")
+            print(f"❌ خطا برای کاربر {self.user_id}: {e}")
             update_user_status(self.user_id, 'error', {'error': str(e)})
     
-    async def main_loop(self):
-        await asyncio.sleep(5)
+    def main_loop(self):
+        time.sleep(5)
         counter = 0
         while self.running:
             try:
                 word = random.choice(KEYWORDS)
-                await self.client.send_message(self.group_id, word)
+                self.client.send_message(self.group_id, word)
                 counter += 1
                 if counter % 5 == 0:
-                    await self.client.send_message(self.group_id, "فنر")
+                    self.client.send_message(self.group_id, "فنر")
                 
                 delay = random.choice(DELAYS) + random.randint(-30, 60)
                 delay = max(240, delay)
-                await asyncio.sleep(delay)
+                time.sleep(delay)
                 
             except Exception as e:
-                print(f"❌ خطا: {e}")
-                await asyncio.sleep(60)
+                print(f"❌ خطا در حلقه: {e}")
+                time.sleep(60)
 
 # ========== اجراکننده ==========
 def start_user_bot(user_id, data):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     bot = UserBot(user_id, data)
-    loop.run_until_complete(bot.start())
+    bot.start()
 
 def watch_for_new_users():
     while True:
@@ -113,14 +110,17 @@ def watch_for_new_users():
             time.sleep(30)
 
 def run_bot():
-    """تابع اجرای ربات - توسط app.py صدا زده میشه"""
     print("🚀 ربات اصلی شروع شد...")
+    
+    import os
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    
     threading.Thread(target=watch_for_new_users, daemon=True).start()
     
-    # اجرای کاربران فعال قبلی
     users = load_users()
     for user_id, data in users.items():
         if data.get('status') == 'active':
+            print(f"🔄 راه‌اندازی مجدد برای {data.get('phone')}")
             threading.Thread(target=start_user_bot, args=(user_id, data)).start()
             time.sleep(2)
     
