@@ -1,12 +1,14 @@
 """
-ربات اصلی - نسخه Sync (بدون asyncio)
+ربات اصلی - نسخه Sync کامل
 """
 
 import json
 import random
 import time
 import threading
+import os
 from telethon.sync import TelegramClient
+from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
 # ========== تنظیمات ==========
 API_ID = 17187664
@@ -37,7 +39,7 @@ def update_user_status(user_id, status, data=None):
     with open(USERS_FILE, 'w') as f:
         json.dump(users, f, indent=2)
 
-# ========== کلاس ربات کاربر (Sync) ==========
+# ========== کلاس ربات کاربر ==========
 class UserBot:
     def __init__(self, user_id, data):
         self.user_id = user_id
@@ -52,7 +54,21 @@ class UserBot:
         self.client = TelegramClient(session_file, API_ID, API_HASH)
         
         try:
-            self.client.start(phone=self.phone, code=self.code)
+            self.client.start(phone=self.phone)
+            
+            # اگر کد قبلاً ذخیره شده، ازش استفاده کن
+            if self.code:
+                try:
+                    self.client.sign_in(code=self.code)
+                except PhoneCodeInvalidError:
+                    print(f"❌ کد نادرست برای {self.phone}")
+                    update_user_status(self.user_id, 'error', {'error': 'کد نادرست'})
+                    return
+                except SessionPasswordNeededError:
+                    print(f"🔐 2FA برای {self.phone} فعال است")
+                    update_user_status(self.user_id, 'error', {'error': '2FA فعال است'})
+                    return
+            
             me = self.client.get_me()
             
             print(f"✅ کاربر {me.first_name} (@{me.username}) متصل شد!")
@@ -112,7 +128,6 @@ def watch_for_new_users():
 def run_bot():
     print("🚀 ربات اصلی شروع شد...")
     
-    import os
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     
     threading.Thread(target=watch_for_new_users, daemon=True).start()
